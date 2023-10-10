@@ -1,0 +1,79 @@
+FROM archlinux:latest as godot_base_init
+
+ARG Build_Version
+ENV Build_Version $Build_Version
+
+ARG GODOT_SERVER_BUILD=dedicated
+ENV GODOT_SERVER_BUILD $GODOT_SERVER_BUILD
+
+ARG PYTHON_VERSION=3.9.18
+ENV PYTHON_VERSION $PYTHON_VERSION
+
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=true
+
+RUN pacman -Sy --needed --noconfirm \
+      fontconfig \
+      pkgconf \
+      gcc \
+      libxcursor \
+      libxinerama \
+      libxi \
+      libxrandr \
+      mesa \
+      glu \
+      libglvnd \
+      alsa-lib \
+      pulseaudio
+
+RUN pacman -Sy --needed --noconfirm \
+    mono \
+    tree \
+    base-devel \
+    vulkan-icd-loader \
+    nvidia-utils \
+    vulkan-swrast \
+    vulkan-headers \
+    vulkan-validation-layers \
+    vulkan-tools
+
+RUN mkdir /python
+
+WORKDIR /python
+
+RUN curl -o /python/python.tgz -O https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz
+RUN tar zxvf python.tgz
+RUN echo $(ls)
+RUN rm python.tgz
+
+WORKDIR /python/Python-${PYTHON_VERSION}
+RUN ./configure
+RUN make -j16
+RUN make install
+
+RUN pacman -Sy --noconfirm which git
+
+FROM godot_base_init as godot_base
+
+RUN mkdir /dotnet
+WORKDIR /dotnet
+RUN curl -LJO https://dot.net/v1/dotnet-install.sh
+RUN chmod +x dotnet-install.sh
+RUN ./dotnet-install.sh --install-dir /dotnet -channel 6.0
+
+RUN curl -o /usr/local/bin/nuget.exe https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
+
+ENV PYTHON_DIR=/python/Python-${PYTHON_VERSION}
+ENV PYTHON_BIN=${PYTHON_DIR}/python
+
+RUN $PYTHON_BIN -m pip install pyston_lite_autoload scons
+
+COPY libatomic_ops /libatomic
+WORKDIR /libatomic
+RUN ./configure
+RUN make
+RUN make install
+
+WORKDIR /
+
+ENTRYPOINT ["tail", "-f", "/dev/null"]
+
